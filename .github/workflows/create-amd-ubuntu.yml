@@ -6,50 +6,37 @@ on:
 jobs:
   create:
     runs-on: ubuntu-latest
-    name: Del old + Create AMD Ubuntu
+    name: Del + Create AMD Ubuntu
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-
       - name: Install Composer dependencies
         run: composer install --prefer-dist --no-progress
-
       - name: Write OCI private key
         run: |
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > /tmp/oci_key.pem
           chmod 600 /tmp/oci_key.pem
-
-      - name: Terminate old Oracle Linux instance
+      - name: Terminate old no-SSH Ubuntu
         continue-on-error: true
         run: |
           php -r '
           require_once "vendor/autoload.php";
           $c = new \Hitrov\OciConfig("ap-tokyo-1", getenv("OCI_USER"), getenv("OCI_TENANCY"), getenv("OCI_FP"), "/tmp/oci_key.pem", "", "","",1,1);
           $api = new \Hitrov\OciApi();
-          $id = "ocid1.instance.oc1.ap-tokyo-1.anxhiljrrqqkxxqca2wordosb3wes65zy65y2alcbktzqb4djjvzjhfbou2q";
+          $id = "ocid1.instance.oc1.ap-tokyo-1.anxhiljrrqqkxxqcgk2h4afv4pxyiiutr3fj6jmbl3slrark3kmuigzvpuia";
           $url = "https://iaas.ap-tokyo-1.oraclecloud.com/20160918/instances/" . $id;
-          echo "Terminating...\n";
-          try { $api->call($c, $url, "DELETE"); echo "OK\n"; }
-          catch (\Exception $e) { 
-            if (strpos($e->getMessage(), "JSON") !== false || strpos($e->getMessage(), "Syntax error") !== false) {
-              echo "Terminated (204 No Content)\n";
-            } else {
-              echo "Error: " . $e->getMessage() . "\n";
-            }
-          }
+          try { $api->call($c, $url, "DELETE"); echo "Deleted\n"; }
+          catch (\Exception $e) { echo (strpos($e->getMessage(),"JSON")!==false||strpos($e->getMessage(),"Syntax")!==false)?"Deleted (204)\n":"Err: ".$e->getMessage()."\n"; }
           '
         env:
           OCI_USER: ${{ secrets.OCI_USER_ID }}
           OCI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
           OCI_FP: ${{ secrets.OCI_KEY_FINGERPRINT }}
-
-      - name: Wait for termination
+      - name: Wait
         run: sleep 10
-
       - name: Create AMD Micro Ubuntu
         env:
           OCI_REGION: ${{ secrets.OCI_REGION }}
@@ -73,13 +60,9 @@ jobs:
           echo "OCI_OUTPUT<<ENDOUT" >> $GITHUB_OUTPUT
           echo "$OUTPUT" >> $GITHUB_OUTPUT
           echo "ENDOUT" >> $GITHUB_OUTPUT
-
-      - name: WeChat notify
+      - name: WeChat
         if: ${{ !contains(steps.create.outputs.OCI_OUTPUT, 'Out of host capacity') && !contains(steps.create.outputs.OCI_OUTPUT, 'InternalError') }}
         env:
-          PP_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          OCI_OUT: ${{ steps.create.outputs.OCI_OUTPUT }}
-        run: |
-          curl -s -X POST http://www.pushplus.plus/send \
-            -H "Content-Type: application/json" \
-            -d "{\"token\":\"${PP_TOKEN}\",\"title\":\"AMD Ubuntu Created\",\"content\":\"<pre>${OCI_OUT}</pre>\",\"template\":\"html\"}"
+          T: ${{ secrets.PUSHPLUS_TOKEN }}
+          O: ${{ steps.create.outputs.OCI_OUTPUT }}
+        run: curl -s -X POST http://www.pushplus.plus/send -H "Content-Type: application/json" -d "{\"token\":\"${T}\",\"title\":\"AMD Ubuntu 2 Ready\",\"content\":\"<pre>${O}</pre>\",\"template\":\"html\"}"
