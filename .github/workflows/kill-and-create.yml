@@ -1,7 +1,11 @@
-name: "Kill and Create AMD Ubuntu"
+name: Kill and Create AMD Ubuntu
 
 on:
   workflow_dispatch:
+    inputs:
+      go:
+        description: 'Run'
+        required: false
 
 jobs:
   fix:
