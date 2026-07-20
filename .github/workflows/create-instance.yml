@@ -3,7 +3,7 @@ name: Create OCI Instance
 on:
   schedule:
     - cron: '*/10 * * * *'
-  workflow_dispatch:  # allow manual trigger
+  workflow_dispatch:
 
 jobs:
   create:
@@ -26,6 +26,7 @@ jobs:
           chmod 600 /tmp/oci_key.pem
 
       - name: Run instance creation script
+        id: oci
         env:
           OCI_REGION: ${{ secrets.OCI_REGION }}
           OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
@@ -41,4 +42,17 @@ jobs:
           OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
           CACHE_AVAILABILITY_DOMAINS: 1
           TOO_MANY_REQUESTS_TIME_WAIT: 600
-        run: php index.php
+        run: |
+          OUTPUT=$(php index.php 2>&1)
+          echo "$OUTPUT"
+          echo "OCI_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: PushPlus - 微信通知成功
+        if: ${{ !contains(steps.oci.outputs.OCI_OUTPUT, 'Out of host capacity') && !contains(steps.oci.outputs.OCI_OUTPUT, 'InternalError') }}
+        run: |
+          INSTANCE_INFO="${{ steps.oci.outputs.OCI_OUTPUT }}"
+          curl -s -X POST http://www.pushplus.plus/send \
+            -H "Content-Type: application/json" \
+            -d "{\"token\":\"${{ secrets.PUSHPLUS_TOKEN }}\",\"title\":\"🎉 OCI ARM 服务器创建成功！\",\"content\":\"<pre>${INSTANCE_INFO}</pre>\",\"template\":\"html\"}"
