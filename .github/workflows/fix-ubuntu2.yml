@@ -1,0 +1,71 @@
+name: Fix Second Ubuntu (One-time)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    name: Del old Ubuntu + Create new with SSH
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress
+      - name: Write OCI private key
+        run: |
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > /tmp/oci_key.pem
+          chmod 600 /tmp/oci_key.pem
+      - name: Terminate old Ubuntu (no SSH)
+        continue-on-error: true
+        run: |
+          php -r '
+          require_once "vendor/autoload.php";
+          $c = new \Hitrov\OciConfig("ap-tokyo-1", getenv("OCI_USER"), getenv("OCI_TENANCY"), getenv("OCI_FP"), "/tmp/oci_key.pem", "", "","",1,1);
+          $api = new \Hitrov\OciApi();
+          $id = "ocid1.instance.oc1.ap-tokyo-1.anxhiljrrqqkxxqcgk2h4afv4pxyiiutr3fj6jmbl3slrark3kmuigzvpuia";
+          $url = "https://iaas.ap-tokyo-1.oraclecloud.com/20160918/instances/" . $id;
+          try { $api->call($c, $url, "DELETE"); echo "Deleted\n"; }
+          catch (\Exception $e) {
+            if (strpos($e->getMessage(), "JSON") !== false || strpos($e->getMessage(), "Syntax") !== false) echo "Deleted (204)\n";
+            else echo "Err: ".$e->getMessage()."\n";
+          }
+          '
+        env:
+          OCI_USER: ${{ secrets.OCI_USER_ID }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_FP: ${{ secrets.OCI_KEY_FINGERPRINT }}
+      - name: Wait
+        run: sleep 10
+      - name: Create new AMD Ubuntu
+        env:
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
+          OCI_TENANCY_ID: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
+          OCI_PRIVATE_KEY_FILENAME: /tmp/oci_key.pem
+          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+          OCI_IMAGE_ID: ocid1.image.oc1.ap-tokyo-1.aaaaaaaa5xvmxb5y7np7tunegntczkjzb376ou63xif5flq3zo44r7lo3oaq
+          OCI_OCPUS: 1
+          OCI_MEMORY_IN_GBS: 1
+          OCI_SHAPE: VM.Standard.E2.1.Micro
+          OCI_MAX_INSTANCES: 3
+          OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
+          CACHE_AVAILABILITY_DOMAINS: 1
+          TOO_MANY_REQUESTS_TIME_WAIT: 60
+        id: create
+        run: |
+          OUTPUT=$(php index.php 2>&1)
+          echo "$OUTPUT"
+          echo "OCI_OUTPUT<<ENDOUT" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "ENDOUT" >> $GITHUB_OUTPUT
+      - name: WeChat
+        if: ${{ !contains(steps.create.outputs.OCI_OUTPUT, 'Out of host capacity') && !contains(steps.create.outputs.OCI_OUTPUT, 'InternalError') }}
+        env:
+          T: ${{ secrets.PUSHPLUS_TOKEN }}
+          O: ${{ steps.create.outputs.OCI_OUTPUT }}
+        run: curl -s -X POST http://www.pushplus.plus/send -H "Content-Type: application/json" -d "{\"token\":\"${T}\",\"title\":\"Second AMD Ubuntu Ready\",\"content\":\"<pre>${O}</pre>\",\"template\":\"html\"}"
