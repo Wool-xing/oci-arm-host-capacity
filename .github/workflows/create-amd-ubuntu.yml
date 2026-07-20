@@ -24,6 +24,7 @@ jobs:
           chmod 600 /tmp/oci_key.pem
 
       - name: Terminate old Oracle Linux instance
+        continue-on-error: true
         run: |
           php -r '
           require_once "vendor/autoload.php";
@@ -31,16 +32,22 @@ jobs:
           $api = new \Hitrov\OciApi();
           $id = "ocid1.instance.oc1.ap-tokyo-1.anxhiljrrqqkxxqca2wordosb3wes65zy65y2alcbktzqb4djjvzjhfbou2q";
           $url = "https://iaas.ap-tokyo-1.oraclecloud.com/20160918/instances/" . $id;
-          echo "Terminating $id via $url\n";
-          $api->call($c, $url, "DELETE");
-          echo "Done.\n";
+          echo "Terminating...\n";
+          try { $api->call($c, $url, "DELETE"); echo "OK\n"; }
+          catch (\Exception $e) { 
+            if (strpos($e->getMessage(), "JSON") !== false || strpos($e->getMessage(), "Syntax error") !== false) {
+              echo "Terminated (204 No Content)\n";
+            } else {
+              echo "Error: " . $e->getMessage() . "\n";
+            }
+          }
           '
         env:
           OCI_USER: ${{ secrets.OCI_USER_ID }}
           OCI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
           OCI_FP: ${{ secrets.OCI_KEY_FINGERPRINT }}
 
-      - name: Wait
+      - name: Wait for termination
         run: sleep 10
 
       - name: Create AMD Micro Ubuntu
