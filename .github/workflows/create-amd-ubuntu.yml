@@ -1,0 +1,56 @@
+name: Create AMD Ubuntu Instance (One-time)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    name: Create AMD Micro Ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Write OCI private key
+        run: |
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > /tmp/oci_key.pem
+          chmod 600 /tmp/oci_key.pem
+
+      - name: Create AMD Micro Ubuntu instance
+        env:
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
+          OCI_TENANCY_ID: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
+          OCI_PRIVATE_KEY_FILENAME: /tmp/oci_key.pem
+          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+          OCI_IMAGE_ID: ocid1.image.oc1.ap-tokyo-1.aaaaaaaa5xvmxb5y7np7tunegntczkjzb376ou63xif5flq3zo44r7lo3oaq
+          OCI_OCPUS: 1
+          OCI_MEMORY_IN_GBS: 1
+          OCI_SHAPE: VM.Standard.E2.1.Micro
+          OCI_MAX_INSTANCES: 3
+          OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
+          CACHE_AVAILABILITY_DOMAINS: 1
+          TOO_MANY_REQUESTS_TIME_WAIT: 60
+        id: create
+        run: |
+          OUTPUT=$(php index.php 2>&1)
+          echo "$OUTPUT"
+          echo "OCI_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: PushPlus - 微信通知
+        if: ${{ !contains(steps.create.outputs.OCI_OUTPUT, 'Out of host capacity') && !contains(steps.create.outputs.OCI_OUTPUT, 'InternalError') }}
+        run: |
+          INSTANCE_INFO="${{ steps.create.outputs.OCI_OUTPUT }}"
+          curl -s -X POST http://www.pushplus.plus/send \
+            -H "Content-Type: application/json" \
+            -d "{\"token\":\"${{ secrets.PUSHPLUS_TOKEN }}\",\"title\":\"🎉 AMD Ubuntu 服务器创建成功！\",\"content\":\"<pre>${INSTANCE_INFO}</pre>\",\"template\":\"html\"}"
