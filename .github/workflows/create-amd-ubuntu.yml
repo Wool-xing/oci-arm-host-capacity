@@ -6,7 +6,7 @@ on:
 jobs:
   create:
     runs-on: ubuntu-latest
-    name: Create AMD Micro Ubuntu
+    name: Del old + Create AMD Ubuntu
     steps:
       - uses: actions/checkout@v4
 
@@ -24,36 +24,26 @@ jobs:
           chmod 600 /tmp/oci_key.pem
 
       - name: Terminate old Oracle Linux instance
-        id: terminate
         run: |
           php -r '
           require_once "vendor/autoload.php";
-          $c = new \Hitrov\OciConfig(
-            getenv("OCI_REGION"), getenv("OCI_USER_ID"), getenv("OCI_TENANCY_ID"),
-            getenv("OCI_KEY_FINGERPRINT"), getenv("OCI_PRIVATE_KEY_FILENAME"),
-            null, getenv("OCI_SUBNET_ID"), getenv("OCI_IMAGE_ID"), 1, 1
-          );
+          $c = new \Hitrov\OciConfig("ap-tokyo-1", getenv("OCI_USER"), getenv("OCI_TENANCY"), getenv("OCI_FP"), "/tmp/oci_key.pem", "", "","",1,1);
           $api = new \Hitrov\OciApi();
           $id = "ocid1.instance.oc1.ap-tokyo-1.anxhiljrrqqkxxqca2wordosb3wes65zy65y2alcbktzqb4djjvzjhfbou2q";
-          $base = rtrim($api->getBaseApiUrl(new \Hitrov\OciConfig("ap-tokyo-1","","","","/tmp/oci_key.pem","","","",1,1)), "/");
-          $url = "$base/instances/$id";
-          echo "Deleting $id...\n";
+          $url = "https://iaas.ap-tokyo-1.oraclecloud.com/20160918/instances/" . $id;
+          echo "Terminating $id via $url\n";
           $api->call($c, $url, "DELETE");
-          echo "Deleted.\n";
+          echo "Done.\n";
           '
         env:
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
-          OCI_TENANCY_ID: ${{ secrets.OCI_TENANCY_ID }}
-          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_PRIVATE_KEY_FILENAME: /tmp/oci_key.pem
-          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
-          OCI_IMAGE_ID: ocid1.image.oc1.ap-tokyo-1.aaaaaaaa5xvmxb5y7np7tunegntczkjzb376ou63xif5flq3zo44r7lo3oaq
+          OCI_USER: ${{ secrets.OCI_USER_ID }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_FP: ${{ secrets.OCI_KEY_FINGERPRINT }}
 
-      - name: Wait for termination
+      - name: Wait
         run: sleep 10
 
-      - name: Create AMD Micro Ubuntu instance
+      - name: Create AMD Micro Ubuntu
         env:
           OCI_REGION: ${{ secrets.OCI_REGION }}
           OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
@@ -77,9 +67,12 @@ jobs:
           echo "$OUTPUT" >> $GITHUB_OUTPUT
           echo "ENDOUT" >> $GITHUB_OUTPUT
 
-      - name: PushPlus notification
+      - name: WeChat notify
         if: ${{ !contains(steps.create.outputs.OCI_OUTPUT, 'Out of host capacity') && !contains(steps.create.outputs.OCI_OUTPUT, 'InternalError') }}
+        env:
+          PP_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          OCI_OUT: ${{ steps.create.outputs.OCI_OUTPUT }}
         run: |
           curl -s -X POST http://www.pushplus.plus/send \
             -H "Content-Type: application/json" \
-            -d "{\"token\":\"${{ secrets.PUSHPLUS_TOKEN }}\",\"title\":\"AMD Ubuntu Created\",\"content\":\"<pre>${{ steps.create.outputs.OCI_OUTPUT }}</pre>\",\"template\":\"html\"}"
+            -d "{\"token\":\"${PP_TOKEN}\",\"title\":\"AMD Ubuntu Created\",\"content\":\"<pre>${OCI_OUT}</pre>\",\"template\":\"html\"}"
